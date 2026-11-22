@@ -1,0 +1,27 @@
+# Environment & secrets (NEVER commit real credentials)
+.env
+.env.local
+.env.*.local
+
+# Python virtual environments & caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Playwright artifacts & logs
+playwright-report/
+test-results/
+*.log
+*.session.json
+
+# OS & editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
