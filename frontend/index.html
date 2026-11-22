@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Bot Live Quiz Arena | ROV Academy Real-Time Solver</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Kanit:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Ambient Glassmorphism Background Orbs -->
+  <div class="ambient-bg" aria-hidden="true">
+    <div class="orb orb-cyan"></div>
+    <div class="orb orb-violet"></div>
+    <div class="orb orb-emerald"></div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 1: LOGIN SCREEN (Hidden immediately after successful JWT login)  -->
+  <!-- ===================================================================== -->
+  <section id="login-view" class="login-shell">
+    <div class="glass-card login-card">
+      <div class="brand-lockup">
+        <div class="brand-emblem">⚡</div>
+        <div>
+          <span class="eyebrow">ROV ACADEMY · FULL-STACK REALTIME</span>
+          <h1>AI Bot Live Quiz Arena</h1>
+        </div>
+      </div>
+
+      <p class="login-subtitle">
+        เข้าสู่ระบบด้วยบัญชีผู้ควบคุมเพื่อรับ <strong>JWT Token</strong> และเชื่อมต่อ
+        <strong>Live Quiz Arena</strong> พร้อมสตรีม Real-time Log ผ่าน WebSocket
+      </p>
+
+      <form id="login-form" class="login-form" autocomplete="off">
+        <div class="form-group">
+          <label for="username-input">ชื่อผู้ใช้ (Username)</label>
+          <input
+            type="text"
+            id="username-input"
+            name="username"
+            placeholder="กรอกชื่อผู้ใช้ตามไฟล์ .env"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="password-input">รหัสผ่าน (Password)</label>
+          <input
+            type="password"
+            id="password-input"
+            name="password"
+            placeholder="••••••••••••"
+            required
+          />
+        </div>
+
+        <div id="login-error" class="alert-error hidden" role="alert"></div>
+
+        <button type="submit" id="btn-login" class="btn btn-bolt full-width">
+          <span class="btn-icon">🔐</span>
+          <span id="login-btn-label">เข้าสู่ระบบ &amp; สร้าง JWT Token</span>
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <span class="chip chip-muted">FastAPI :8080</span>
+        <span class="chip chip-muted">JWT HS256</span>
+        <span class="chip chip-muted">Supabase + Sentry</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 2: LIVE QUIZ ARENA (Revealed after authentication)               -->
+  <!-- ===================================================================== -->
+  <div id="arena-view" class="arena-shell hidden">
+    <!-- Top JWT Token & Session Bar -->
+    <header class="glass-card token-topbar">
+      <div class="topbar-left">
+        <div class="brand-mini">
+          <span class="mini-icon">⚡</span>
+          <div>
+            <div class="mini-title">AI Bot Live Quiz Arena</div>
+            <div class="mini-meta">
+              Operator: <strong id="operator-name">--</strong> · Source:
+              <span id="data-source-badge" class="source-pill">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="token-ribbon" aria-label="Active JWT Token">
+        <span class="token-label">JWT TOKEN</span>
+        <code id="jwt-token-display" class="token-code" title="Active JWT Access Token">--</code>
+        <button id="btn-toggle-token" type="button" class="icon-btn" title="แสดง/ซ่อน Token เต็ม">👁️</button>
+        <button id="btn-copy-token" type="button" class="icon-btn" title="คัดลอก JWT Token">📋</button>
+      </div>
+
+      <div class="topbar-right">
+        <span id="realtime-badge" class="status-badge status-connecting">
+          <span class="pulse-dot"></span>
+          <span id="realtime-status-text">กำลังเชื่อมต่อ WS...</span>
+        </span>
+        <button id="btn-logout" type="button" class="btn btn-ghost btn-sm">ออกจากระบบ</button>
+      </div>
+    </header>
+
+    <!-- Live Metrics Strip -->
+    <section class="metrics-grid" aria-label="Arena Statistics">
+      <div class="glass-card metric-card">
+        <span class="metric-label">คำถามที่ AI ตอบแล้ว</span>
+        <strong id="stat-answered" class="metric-value">0</strong>
+      </div>
+      <div class="glass-card metric-card">
+        <span class="metric-label">ความแม่นยำ (Accuracy)</span>
+        <strong id="stat-accuracy" class="metric-value text-emerald">100%</strong>
+      </div>
+      <div class="glass-card metric-card">
+        <span class="metric-label">เวลาคิดเฉลี่ยของ AI</span>
+        <strong id="stat-avg-time" class="metric-value text-cyan">0.0s</strong>
+      </div>
+      <div class="glass-card metric-card">
+        <span class="metric-label">อายุ JWT คงเหลือ</span>
+        <strong id="stat-token-ttl" class="metric-value text-violet">--:--</strong>
+      </div>
+    </section>
+
+    <!-- Main 2-Column Workspace: Left = Quiz Stage, Right = Real-Time Log Console -->
+    <main class="arena-grid">
+      <!-- Left Panel: Question & Bolt Controls -->
+      <section class="glass-card quiz-stage">
+        <div class="stage-toolbar">
+          <div class="category-pills" role="group" aria-label="หมวดคำถาม ROV Academy">
+            <button type="button" class="pill active" data-category="">ทั้งหมด</button>
+            <button type="button" class="pill" data-category="MOBA101">MOBA101</button>
+            <button type="button" class="pill" data-category="แผนที่">แผนที่</button>
+            <button type="button" class="pill" data-category="ไอเทม">ไอเทม</button>
+            <button type="button" class="pill" data-category="ตำแหน่ง">ตำแหน่ง</button>
+          </div>
+          <button id="btn-next-question" type="button" class="btn btn-secondary btn-sm">
+            🎲 สุ่มคำถามใหม่
+          </button>
+        </div>
+
+        <!-- Question Header -->
+        <div class="question-meta">
+          <span id="question-category-badge" class="cat-badge">กำลังโหลด...</span>
+          <span id="question-id-label" class="qid-label">#--</span>
+        </div>
+
+        <h2 id="question-title" class="question-chapter-title">กำลังดึงคลังคำถาม ROV Academy...</h2>
+
+        <details class="lesson-context-box" open>
+          <summary>📖 เนื้อหาอ้างอิงจาก ROV Academy (Content)</summary>
+          <p id="question-content" class="lesson-content-text">รอรับข้อมูลจาก Backend...</p>
+        </details>
+
+        <div class="question-prompt-box">
+          <span class="prompt-tag">คำถามประลอง</span>
+          <p id="question-text" class="question-text">--</p>
+        </div>
+
+        <!-- 4 Multiple Choice Options (A, B, C, D) -->
+        <div id="options-grid" class="options-grid" aria-live="polite">
+          <div class="option-card" data-option="A">
+            <span class="option-key">A</span>
+            <span class="option-text" id="opt-text-A">--</span>
+            <span class="option-indicator"></span>
+          </div>
+          <div class="option-card" data-option="B">
+            <span class="option-key">B</span>
+            <span class="option-text" id="opt-text-B">--</span>
+            <span class="option-indicator"></span>
+          </div>
+          <div class="option-card" data-option="C">
+            <span class="option-key">C</span>
+            <span class="option-text" id="opt-text-C">--</span>
+            <span class="option-indicator"></span>
+          </div>
+          <div class="option-card" data-option="D">
+            <span class="option-key">D</span>
+            <span class="option-text" id="opt-text-D">--</span>
+            <span class="option-indicator"></span>
+          </div>
+        </div>
+
+        <!-- AI Thinking Effect Banner -->
+        <div id="ai-thinking-banner" class="thinking-banner hidden" role="status" aria-live="polite">
+          <div class="orbital-spinner" aria-hidden="true">
+            <div class="ring"></div>
+            <div class="ring ring-inner"></div>
+            <span class="spark">⚡</span>
+          </div>
+          <div class="thinking-copy">
+            <div class="thinking-headline">
+              AI กำลังคิด<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
+            </div>
+            <div class="thinking-subtext" id="thinking-subtext">
+              กำลังประมวลผลบริบท ROV Academy และเปรียบเทียบตัวเลือก A, B, C, D
+            </div>
+          </div>
+          <div id="thinking-timer" class="thinking-timer">0.0s</div>
+        </div>
+
+        <!-- AI Answer Result Explanation -->
+        <div id="ai-result-banner" class="result-banner hidden" aria-live="polite">
+          <div class="result-header">
+            <span id="result-badge" class="result-pill">✅ AI ตอบถูกต้อง</span>
+            <span id="result-meta" class="result-meta">--</span>
+          </div>
+          <p id="result-explanation" class="result-explanation"></p>
+        </div>
+
+        <!-- Primary Action Footer: Bolt Button -->
+        <div class="stage-actions">
+          <button id="btn-bolt-send" type="button" class="btn btn-bolt btn-lg">
+            <span class="bolt-flash">⚡</span>
+            <span id="bolt-btn-label">ส่งคำถามให้ AI บอทตอบ</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Panel: Real-Time Log Console -->
+      <aside class="glass-card console-panel">
+        <div class="console-header">
+          <div class="console-title-group">
+            <div class="traffic-dots" aria-hidden="true">
+              <span class="dot-red"></span>
+              <span class="dot-amber"></span>
+              <span class="dot-green"></span>
+            </div>
+            <h3>Real-time Log Console</h3>
+          </div>
+          <button id="btn-clear-logs" type="button" class="btn btn-ghost btn-xs">ล้าง Log</button>
+        </div>
+
+        <div id="log-console" class="log-stream" role="log" aria-live="polite"></div>
+
+        <div class="console-footer">
+          <span id="transport-info">Transport: WebSocket (/ws/logs)</span>
+          <span id="log-counter">0 events</span>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
