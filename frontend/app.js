@@ -60,6 +60,9 @@
     loginError: document.getElementById("login-error"),
     btnLogin: document.getElementById("btn-login"),
     loginBtnLabel: document.getElementById("login-btn-label"),
+    passwordToggle: document.getElementById("toggle-password"),
+    multiAccountNote: document.getElementById("multi-account-note"),
+    accountTabs: document.querySelectorAll(".account-tab"),
 
     operatorName: document.getElementById("operator-name"),
     dataSourceBadge: document.getElementById("data-source-badge"),
@@ -430,6 +433,9 @@
     el.arenaView.classList.add("hidden");
     el.loginView.classList.remove("hidden");
     el.passwordInput.value = "";
+    el.passwordInput.type = "password";
+    el.passwordToggle?.setAttribute("aria-pressed", "false");
+    el.passwordToggle?.setAttribute("aria-label", "แสดงรหัสผ่าน");
     if (clearMessage) {
       el.loginError.classList.add("hidden");
     }
@@ -466,7 +472,7 @@
       el.loginError.classList.remove("hidden");
     } finally {
       el.btnLogin.disabled = false;
-      el.loginBtnLabel.textContent = "เข้าสู่ระบบ & สร้าง JWT Token";
+      el.loginBtnLabel.textContent = "เข้าสู่ระบบ Garena Arena";
     }
   }
 
@@ -789,6 +795,27 @@
 
   function bindEvents() {
     el.loginForm.addEventListener("submit", handleLoginSubmit);
+
+    el.passwordToggle?.addEventListener("click", () => {
+      const visible = el.passwordInput.type === "password";
+      el.passwordInput.type = visible ? "text" : "password";
+      el.passwordToggle.setAttribute("aria-pressed", String(visible));
+      el.passwordToggle.setAttribute("aria-label", visible ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน");
+    });
+
+    el.accountTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        el.accountTabs.forEach((candidate) => {
+          const active = candidate === tab;
+          candidate.classList.toggle("active", active);
+          candidate.setAttribute("aria-selected", String(active));
+        });
+        const multi = tab.dataset.accountMode === "multi";
+        el.multiAccountNote.classList.toggle("hidden", !multi);
+        if (multi) showToast("เวอร์ชันนี้รองรับบัญชีเดียว");
+      });
+    });
+
     el.btnLogout.addEventListener("click", () => {
       logout(true);
       showToast("ออกจากระบบเรียบร้อยแล้ว");
