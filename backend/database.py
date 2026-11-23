@@ -156,6 +156,24 @@ class QuizRepository:
             )
             return []
 
+    def _merge_with_existing(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Update matching external_keys from a fresh scrape while keeping curated extras."""
+        incoming = [self._normalize_row(row, idx) for idx, row in enumerate(rows, start=1)]
+        existing = self._load_local_questions()
+
+        merged: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+        for item in existing:
+            key = item["external_key"]
+            merged[key] = item
+            order.append(key)
+        for item in incoming:
+            key = item["external_key"]
+            if key not in merged:
+                order.append(key)
+            merged[key] = item
+        return [merged[key] for key in order]
+
     def save_local_questions(self, rows: List[Dict[str, Any]]) -> Path:
         """Persist scraped questions locally with guaranteed unique sequential IDs."""
         cache_path: Path = self.settings.local_cache_path
@@ -234,16 +252,18 @@ class QuizRepository:
         if not rows:
             return 0, self.active_source
 
+        merged_rows = self._merge_with_existing(rows)
+
         # Always keep local mirror synchronized for offline resilience
-        self.save_local_questions(rows)
+        self.save_local_questions(merged_rows)
 
         if not self.settings.has_supabase_config:
             logger.info(
                 "Supabase credentials not configured; saved %d questions to local cache (%s).",
-                len(rows),
+                len(merged_rows),
                 self.settings.local_cache_path,
             )
-            return len(rows), "local_rov_cache"
+            return len(merged_rows), "local_rov_cache"
 
         # Strip synthetic local `id` so Supabase identity sequence manages primary keys
         db_payload = [
@@ -258,7 +278,7 @@ class QuizRepository:
                 "explanation": r.get("explanation", ""),
                 "source_url": r.get("source_url", self.settings.rov_academy_url),
             }
-            for r in rows
+            for r in merged_rows
         ]
 
         async def _attempt_upsert() -> int:
