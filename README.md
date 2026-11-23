@@ -1,6 +1,8 @@
 # ⚡ AI Bot Live Quiz Arena (Full-Stack + MCP Workflow)
 
-เว็บแอปพลิเคชัน **AI Bot Live Quiz Arena** แบบ Full-Stack ครบวงจร ดึงคลังความรู้จริงจาก **ROV Academy** 4 หมวดหลัก (`MOBA101`, `แผนที่`, `ไอเทม`, `ตำแหน่ง`) บันทึกลง **Supabase** พร้อมระบบหลังบ้าน **FastAPI (Port 8080)**, **JWT Authentication**, **AI Bot Solver** (คิดแบบสมจริง 2–4 วินาที), **Real-time WebSocket + SSE Console**, **3x Retry + Sentry Error Monitoring**, **Docker Compose**, และ **Unit Tests (`pytest`)**
+เว็บแอปพลิเคชัน **AI Bot Live Quiz Arena** แบบ Full-Stack ครบวงจร ดึงคลังความรู้จริงจาก **ROV Academy** 7 หัวข้อ (40 บทเรียน) และ **Garena Games API** รวมเป็น **8 หมวด / 59 ข้อ** (`MOBA101`, `แผนที่`, `ไอเทม`, `ตำแหน่ง`, `อีสปอร์ต`, `ทริกตีป้อม`, `เทคนิคฮีโร่`, `Garena`) บันทึกลง **Supabase** พร้อมระบบหลังบ้าน **FastAPI (Port 8080)**, **JWT Authentication**, **AI Bot Solver** (คิดแบบสมจริง 2–4 วินาที), **Real-time WebSocket + SSE Console**, **3x Retry + Sentry Error Monitoring**, **Docker Compose**, **Unit Tests (`pytest`)** และ **UI ธีม Garena-inspired** (แดง/ดำ/ทอง) พร้อมลิงก์ไปยังแหล่งข้อมูล Garena อย่างเป็นทางการ
+
+> **หมายเหตุ:** โปรเจกต์นี้เป็นผลงานแฟนเมดเพื่อการศึกษา ไม่ได้มีความเกี่ยวข้องหรือได้รับการรับรองจาก Garena อย่างเป็นทางการ
 
 ---
 
@@ -24,13 +26,13 @@ ai-bot-live-quiz-arena/
 │   ├── ws_manager.py         # Real-time WebSocket ConnectionManager + SSE Fallback Hub
 │   └── ai_bot.py             # AI Bot Engine (สุ่มคิด 2–4 วินาที + ยิง Log Real-time)
 ├── frontend/
-│   ├── index.html            # PHASE 3: หน้า Login + Live Quiz Arena (Dark Glassmorphism)
-│   ├── style.css             # สไตล์ Dark Glassmorphism, Orbital Thinking Effect, Live Console
+│   ├── index.html            # PHASE 3: หน้า Login + Live Quiz Arena + Garena source links
+│   ├── style.css             # สไตล์ Garena-inspired (แดง/ดำ/ทอง), Orbital Thinking Effect, Live Console
 │   ├── app.js                # จัดการ JWT Token Bar, Bolt Button, WebSocket & SSE Auto-Fallback
 │   ├── Dockerfile            # Nginx Container สำหรับ Frontend
 │   └── nginx.conf            # Reverse Proxy /api และ /ws ไปยัง Backend
 ├── data/
-│   └── quiz_questions.json   # คลังคำถาม ROV Academy จริง 4 หมวด (20 ข้อ จาก 15 บทเรียน) สำหรับ Fallback/Seed
+│   └── quiz_questions.json   # คลังคำถามจริง 8 หมวด (59 ข้อ: 40 บทเรียน ROV Academy + 14 เกม Garena + 5 curated) สำหรับ Fallback/Seed
 ├── Dockerfile                # Backend FastAPI Container (Port 8080)
 ├── docker-compose.yml        # รันทั้ง Backend (:8080) และ Frontend (:3000) พร้อมกัน
 ├── test_api.py               # ชุด Unit & Integration Test ด้วย pytest
@@ -44,7 +46,7 @@ ai-bot-live-quiz-arena/
 1. สร้างโปรเจกต์ใหม่ที่ [Supabase Dashboard](https://supabase.com/dashboard)
 2. ไปที่เมนู **SQL Editor** → กด **New Query**
 3. คัดลอกคำสั่งทั้งหมดจากไฟล์ [`supabase_schema.sql`](./supabase_schema.sql) แล้วกด **Run** เพื่อสร้าง:
-   - ตาราง `public.quiz_questions` (รองรับ 4 หมวด: `MOBA101`, `แผนที่`, `ไอเทม`, `ตำแหน่ง`)
+   - ตาราง `public.quiz_questions` (รองรับ 8 หมวด: `MOBA101`, `แผนที่`, `ไอเทม`, `ตำแหน่ง`, `อีสปอร์ต`, `ทริกตีป้อม`, `เทคนิคฮีโร่`, `Garena`)
    - Unique Constraint `external_key` สำหรับ `UPSERT` ไม่ให้ข้อมูลซ้ำ
    - Index, Trigger `updated_at`, Row Level Security (RLS) และฟังก์ชัน `get_random_quiz_question()`
 > **ทางเลือกสำหรับ apply schema จาก command line:**
@@ -81,6 +83,9 @@ JWT_EXPIRE_MINUTES=1440
 ROV_USERNAME=your_rov_username
 ROV_PASSWORD=your_rov_password
 
+# แหล่งข้อมูล Garena Games API (ใช้ scrape หมวด Garena)
+GARENA_URL=https://www.garena.co.th
+
 # Supabase Credentials
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_KEY=your_supabase_service_role_key
@@ -90,7 +95,7 @@ SUPABASE_TABLE=quiz_questions
 SENTRY_DSN=https://publicKey@o0.ingest.sentry.io/0
 ```
 
-> **หมายเหตุ:** หากยังไม่ได้กรอก `SUPABASE_URL`/`SUPABASE_KEY` ระบบ Backend จะโหลดคลังคำถามจริงจาก `data/quiz_questions.json` (ที่ดึงมาจาก ROV Academy ทั้ง 4 หมวด) ให้โดยอัตโนมัติ เพื่อให้ทดสอบการทำงานได้ทันที 100%
+> **หมายเหตุ:** หากยังไม่ได้กรอก `SUPABASE_URL`/`SUPABASE_KEY` ระบบ Backend จะโหลดคลังคำถามจริงจาก `data/quiz_questions.json` (ROV Academy + Garena ทั้ง 8 หมวด) ให้โดยอัตโนมัติ เพื่อให้ทดสอบการทำงานได้ทันที 100%
 
 ---
 
@@ -105,7 +110,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. รัน PHASE 1: ดึงข้อมูล ROV Academy ลง Supabase (`scraper.py`)
+### 2. รัน PHASE 1: ดึงข้อมูล ROV Academy + Garena ลง Supabase (`scraper.py`)
 
 โหมด Playwright Interactive (เปิดเบราว์เซอร์ กรอกรหัสจาก `.env` แล้วหยุดรอด้วย `page.pause()` เพื่อให้คุณแก้ Captcha เอง):
 
@@ -119,7 +124,7 @@ python scraper.py
 python scraper.py --api-only
 ```
 
-> **หมายเหตุ:** scraper จะ merge ข้อมูลตาม `external_key` — คำถามที่ scrape มาใหม่จะอัปเดตทับรายการเดิม แต่คำถามที่เพิ่ม/แก้ไขเองจะไม่ถูกลบ
+> **หมายเหตุ:** scraper จะดึง 7 หัวข้อ ROV Academy (40 บทเรียน) + Garena Games API (14 เกม) แล้ว merge ข้อมูลตาม `external_key` — คำถามที่ scrape มาใหม่จะอัปเดตทับรายการเดิม แต่คำถาม curated 5 ข้อจะไม่ถูกลบ
 
 ### 3. รัน PHASE 2 & 3: เปิดเซิร์ฟเวอร์ FastAPI + หน้าเว็บ Live Quiz Arena (Port 8080)
 
@@ -155,9 +160,24 @@ docker compose down
 
 ---
 
+## 🎮 Garena-inspired UI & แหล่งข้อมูล
+
+- ธีมหน้าเว็บใช้โทน **แดง / ดำ / ทอง** พร้อมมุมเหลี่ยมและแถบเอียงแบบ Garena-inspired โดยไม่ใช้โลโก้หรือ asset ที่มีลิขสิทธิ์
+- มีลิงก์ไปยังแหล่งข้อมูลทางการทั้งในหน้า Login และหน้า Arena:
+  - [Garena Thailand](https://www.garena.co.th/)
+  - [ROV Academy](https://academy.rov.in.th/)
+  - [ROV Thailand](https://rov.in.th/)
+- คลังคำถามรวม **59 ข้อ / 8 หมวด**:
+  - ROV Academy 7 หัวข้อ 40 บทเรียน
+  - Garena Games API 14 เกม (หมวด `Garena`)
+  - คำถาม curated 5 ข้อที่คงอยู่ข้ามการ scrape
+- โปรเจกต์นี้เป็น **fan-made** เพื่อการศึกษา ไม่ได้มีความเกี่ยวข้องหรือได้รับการรับรองจาก Garena
+
+---
+
 ## 🧪 ขั้นตอนที่ 5: รัน Unit Tests (`test_api.py`)
 
-ทดสอบระบบ Login JWT, ดึงคำถามทั้ง 4 หมวด, AI Bot ตอบคำถาม, WebSocket Real-time Log, ระบบ Retry 3 ครั้ง และ Sentry Capture:
+ทดสอบระบบ Login JWT, ดึงคำถามทั้ง 8 หมวด (59 ข้อ), AI Bot ตอบคำถาม, WebSocket Real-time Log, ระบบ Retry 3 ครั้ง และ Sentry Capture:
 
 ```bash
 pytest -v test_api.py
@@ -184,7 +204,7 @@ pytest -v test_api.py
 | `POST` | `/api/auth/login` | No | ตรวจสอบบัญชีจาก `.env` และส่งกลับ JWT Token |
 | `GET` | `/api/auth/me` | JWT | ตรวจสอบสถานะและข้อมูลผู้ใช้ของ JWT ปัจจุบัน |
 | `GET` | `/api/health` | No | เช็กสถานะระบบ, แหล่งข้อมูล (`supabase`/`local_rov_cache`), Sentry และจำนวน WS |
-| `GET` | `/api/questions/random` | JWT | สุ่มดึงคำถามจาก Supabase (รองรับ `?category=MOBA101\|แผนที่\|ไอเทม\|ตำแหน่ง`) |
+| `GET` | `/api/questions/random` | JWT | สุ่มดึงคำถามจาก Supabase (รองรับ `?category=MOBA101\|แผนที่\|ไอเทม\|ตำแหน่ง\|อีสปอร์ต\|ทริกตีป้อม\|เทคนิคฮีโร่\|Garena`) |
 | `GET` | `/api/questions` | JWT | แสดงรายการคำถามทั้งหมดและสถิติแยกตามหมวด |
 | `POST` | `/api/bot/answer` | JWT | สั่ง AI Bot คิด 2–4 วินาที เลือกคำตอบที่ถูก และยิง Log สดผ่าน WebSocket/SSE |
 | `WS` | `/ws/logs?token=<jwt>` | JWT | สตรีม Real-time Log Console (`[User]`, `[AI]`, `[System]`, `[Error]`) |

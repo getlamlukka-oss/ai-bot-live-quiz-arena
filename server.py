@@ -212,7 +212,10 @@ def create_app(custom_settings: Optional[Settings] = None) -> FastAPI:
     async def get_random_question(
         category: Optional[str] = Query(
             default=None,
-            description="Optional category filter: MOBA101, แผนที่, ไอเทม, ตำแหน่ง",
+            description=(
+                "Optional category filter: MOBA101, แผนที่, ไอเทม, ตำแหน่ง, "
+                "อีสปอร์ต, ทริกตีป้อม, เทคนิคฮีโร่, Garena"
+            ),
         ),
         exclude_id: Optional[int] = Query(
             default=None,

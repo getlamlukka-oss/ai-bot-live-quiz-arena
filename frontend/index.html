@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Bot Live Quiz Arena | ROV Academy Real-Time Solver</title>
+  <title>AI Bot Live Quiz Arena | Garena-Inspired ROV Quiz</title>
+  <meta
+    name="description"
+    content="Garena-inspired real-time ROV Academy quiz arena with JWT auth, AI Bot Auto-Run, and live WebSocket console. Fan-made project, not affiliated with Garena."
+  />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -28,7 +32,7 @@
       <div class="brand-lockup">
         <div class="brand-emblem">⚡</div>
         <div>
-          <span class="eyebrow">ROV ACADEMY · FULL-STACK REALTIME</span>
+          <span class="eyebrow">GARENA-INSPIRED · ROV ACADEMY</span>
           <h1>AI Bot Live Quiz Arena</h1>
         </div>
       </div>
@@ -74,6 +78,19 @@
         <span class="chip chip-muted">JWT HS256</span>
         <span class="chip chip-muted">Supabase + Sentry</span>
       </div>
+
+      <nav class="garena-links" aria-label="Garena sources">
+        <a class="garena-link" href="https://www.garena.co.th/" target="_blank" rel="noopener noreferrer">
+          Garena Thailand ↗
+        </a>
+        <a class="garena-link" href="https://academy.rov.in.th/" target="_blank" rel="noopener noreferrer">
+          ROV Academy ↗
+        </a>
+        <a class="garena-link" href="https://rov.in.th/" target="_blank" rel="noopener noreferrer">
+          ROV Thailand ↗
+        </a>
+      </nav>
+      <p class="fan-disclaimer">Fan-made project · not affiliated with Garena</p>
     </div>
   </section>
 
@@ -112,6 +129,15 @@
       </div>
     </header>
 
+    <!-- Garena quick links / source attribution -->
+    <nav class="garena-bar" aria-label="Garena sources">
+      <span class="garena-bar-label">GARENA SOURCES</span>
+      <a class="garena-link" href="https://www.garena.co.th/" target="_blank" rel="noopener noreferrer">Garena Thailand</a>
+      <a class="garena-link" href="https://academy.rov.in.th/" target="_blank" rel="noopener noreferrer">ROV Academy</a>
+      <a class="garena-link" href="https://rov.in.th/" target="_blank" rel="noopener noreferrer">ROV Thailand</a>
+      <span class="garena-bar-note">Fan-made · not affiliated</span>
+    </nav>
+
     <!-- Live Metrics Strip -->
     <section class="metrics-grid" aria-label="Arena Statistics">
       <div class="glass-card metric-card">
@@ -143,6 +169,10 @@
             <button type="button" class="pill" data-category="แผนที่">แผนที่</button>
             <button type="button" class="pill" data-category="ไอเทม">ไอเทม</button>
             <button type="button" class="pill" data-category="ตำแหน่ง">ตำแหน่ง</button>
+            <button type="button" class="pill" data-category="อีสปอร์ต">อีสปอร์ต</button>
+            <button type="button" class="pill" data-category="ทริกตีป้อม">ทริกตีป้อม</button>
+            <button type="button" class="pill" data-category="เทคนิคฮีโร่">เทคนิคฮีโร่</button>
+            <button type="button" class="pill" data-category="Garena">Garena</button>
           </div>
           <div class="stage-toolbar-actions">
             <button id="btn-auto-run" type="button" class="btn btn-auto btn-sm">
@@ -261,7 +291,7 @@
         <div id="log-console" class="log-stream" role="log" aria-live="polite"></div>
 
         <div class="console-footer">
-          <span id="transport-info">Transport: WebSocket (/ws/logs)</span>
+          <span id="transport-info">Transport: WebSocket (/ws/logs) · Sources: ROV Academy + Garena</span>
           <span id="log-counter">0 events</span>
         </div>
       </aside>

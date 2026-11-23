@@ -3,11 +3,11 @@ Unit & Integration Test Suite for AI Bot Live Quiz Arena (`test_api.py`).
 
 Covers:
   1. JWT Authentication (valid credentials -> JWT, invalid credentials -> 401, protected guard)
-  2. Random Quiz Question retrieval (`/api/questions/random`) across all 4 ROV categories
+  2. Random Quiz Question retrieval (`/api/questions/random`) across all 8 categories
   3. AI Bot answering (`/api/bot/answer`) with timing validation & answer accuracy
   4. Real-time WebSocket stream (`/ws/logs`) emitting `[User]` and `[AI]` logs live
   5. Resilient 3-attempt Retry logic & Sentry exception capture on external failures
-  6. Phase 1 Scraper HTML cleanup & 4-category normalization
+  6. Phase 1 Scraper HTML cleanup & 8-category normalization
 """
 
 from __future__ import annotations
@@ -25,8 +25,20 @@ from fastapi.testclient import TestClient
 from backend.config import DEFAULT_LOCAL_CACHE_PATH, Settings
 from backend.database import DatabaseConnectionError, QuizRepository
 from backend.retry_utils import execute_with_async_retry, retry_sync
-from scraper import match_target_category, strip_html
+from scraper import build_garena_game_record, build_quiz_record, match_target_category, strip_html
 from server import create_app
+
+EXPECTED_CATEGORIES = {
+    "MOBA101": 5,
+    "แผนที่": 5,
+    "ไอเทม": 5,
+    "ตำแหน่ง": 5,
+    "อีสปอร์ต": 1,
+    "ทริกตีป้อม": 2,
+    "เทคนิคฮีโร่": 22,
+    "Garena": 14,
+}
+EXPECTED_TOTAL = sum(EXPECTED_CATEGORIES.values())
 
 
 @pytest.fixture()
@@ -150,7 +162,7 @@ def test_protected_endpoint_rejects_missing_or_bad_token(client: TestClient) -> 
 
 
 # =============================================================================
-# 2. Quiz Question Retrieval Tests (4 ROV Academy Categories)
+# 2. Quiz Question Retrieval Tests (8 Categories)
 # =============================================================================
 
 
@@ -163,13 +175,13 @@ def test_random_question_returns_full_rov_record(
     resp = client.get("/api/questions/random", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["category"] in {"MOBA101", "แผนที่", "ไอเทม", "ตำแหน่ง"}
+    assert data["category"] in EXPECTED_CATEGORIES
     assert len(data["title"]) > 0
     assert len(data["content"]) > 20
     assert set(data["options"].keys()) == {"A", "B", "C", "D"}
 
 
-@pytest.mark.parametrize("category", ["MOBA101", "แผนที่", "ไอเทม", "ตำแหน่ง"])
+@pytest.mark.parametrize("category", list(EXPECTED_CATEGORIES))
 def test_random_question_category_filter(
     client: TestClient, test_settings: Settings, category: str
 ) -> None:
@@ -192,8 +204,8 @@ def test_list_questions_returns_full_payload_for_all_categories(
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["total"] == 20
-    assert body["categories"] == {"MOBA101": 5, "แผนที่": 5, "ไอเทม": 5, "ตำแหน่ง": 5}
+    assert body["total"] == EXPECTED_TOTAL
+    assert body["categories"] == EXPECTED_CATEGORIES
     for question in body["questions"]:
         assert question["question_text"].strip()
         assert len(question["content"]) > 20
@@ -201,10 +213,7 @@ def test_list_questions_returns_full_payload_for_all_categories(
         assert question["source_url"].startswith("http")
 
 
-@pytest.mark.parametrize(
-    ("category", "expected"),
-    [("MOBA101", 5), ("แผนที่", 5), ("ไอเทม", 5), ("ตำแหน่ง", 5)],
-)
+@pytest.mark.parametrize(("category", "expected"), list(EXPECTED_CATEGORIES.items()))
 def test_list_questions_category_filter(
     client: TestClient, test_settings: Settings, category: str, expected: int
 ) -> None:
@@ -231,7 +240,7 @@ def test_bot_answers_every_question_in_bank_correctly(
     headers = {"Authorization": f"Bearer {token}"}
 
     bank = client.get("/api/questions", headers=headers).json()["questions"]
-    assert len(bank) == 20
+    assert len(bank) == EXPECTED_TOTAL
 
     answered_categories = set()
     for question in bank:
@@ -251,7 +260,7 @@ def test_bot_answers_every_question_in_bank_correctly(
         assert answer["explanation"].strip()
         answered_categories.add(answer["category"])
 
-    assert answered_categories == {"MOBA101", "แผนที่", "ไอเทม", "ตำแหน่ง"}
+    assert answered_categories == set(EXPECTED_CATEGORIES)
 
 
 # =============================================================================
@@ -419,11 +428,43 @@ def test_random_question_returns_503_when_supabase_down_and_no_local_cache(tmp_p
 # =============================================================================
 
 
-def test_scraper_helpers_clean_html_and_match_4_categories() -> None:
+def test_scraper_helpers_clean_html_and_match_8_categories() -> None:
     cleaned = strip_html("<p>MOBA <b>101</b><br/>RoV&nbsp;Academy</p>")
     assert cleaned == "MOBA 101 \nRoV\xa0Academy" or "MOBA" in cleaned and "<" not in cleaned
     assert match_target_category("MOBA101") == "MOBA101"
     assert match_target_category("แผนที่ RoV") == "แผนที่"
     assert match_target_category("ไอเทมในเกม") == "ไอเทม"
     assert match_target_category("ตำแหน่งในเกม") == "ตำแหน่ง"
-    assert match_target_category("การแข่งขันอีสปอร์ต") is None
+    assert match_target_category("การแข่งขัน RoV\r\nในระดับมืออาชีพ") == "อีสปอร์ต"
+    assert match_target_category("ทริกการตีป้อมให้ชนะ !") == "ทริกตีป้อม"
+    assert match_target_category("เทคนิคการเล่นฮีโร่") == "เทคนิคฮีโร่"
+
+
+def test_garena_game_record_maps_game_to_its_group() -> None:
+    record = build_garena_game_record(
+        game_id=1,
+        game_name="Garena RoV",
+        group_name="Mobile game",
+        support_url="https://support.garena.in.th/new/games/faqs/1/garena-rov",
+        group_names=["PC game", "Mobile game", "Account & Platform", "How to"],
+    )
+    assert record["category"] == "Garena"
+    assert record["external_key"] == "garena_game_1"
+    assert record["correct_option"] == "B"
+    assert record["options"]["B"] == "Mobile game"
+    assert set(record["options"]) == {"A", "B", "C", "D"}
+    assert record["source_url"].startswith("https://support.garena.in.th/")
+
+
+def test_build_quiz_record_generates_balanced_options() -> None:
+    record = build_quiz_record(
+        chapter_id=67,
+        category="เทคนิคฮีโร่",
+        title="Valhein",
+        content="Valhein เป็นฮีโร่ตำแหน่งแครี่ที่เล่นง่ายและกดดันเลนได้ดี",
+        source_url="https://academy.rov.in.th/chapter/67",
+    )
+    assert record["external_key"] == "rov_academy_ch_67"
+    assert record["correct_option"] in {"A", "B", "C", "D"}
+    assert record["options"][record["correct_option"]].startswith("Valhein")
+    assert len(set(record["options"].values())) == 4
