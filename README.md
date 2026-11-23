@@ -30,7 +30,7 @@ ai-bot-live-quiz-arena/
 │   ├── Dockerfile            # Nginx Container สำหรับ Frontend
 │   └── nginx.conf            # Reverse Proxy /api และ /ws ไปยัง Backend
 ├── data/
-│   └── quiz_questions.json   # คลังคำถาม ROV Academy จริง 4 หมวด (15 บทเรียน) สำหรับ Fallback/Seed
+│   └── quiz_questions.json   # คลังคำถาม ROV Academy จริง 4 หมวด (20 ข้อ จาก 15 บทเรียน) สำหรับ Fallback/Seed
 ├── Dockerfile                # Backend FastAPI Container (Port 8080)
 ├── docker-compose.yml        # รันทั้ง Backend (:8080) และ Frontend (:3000) พร้อมกัน
 ├── test_api.py               # ชุด Unit & Integration Test ด้วย pytest
@@ -47,6 +47,10 @@ ai-bot-live-quiz-arena/
    - ตาราง `public.quiz_questions` (รองรับ 4 หมวด: `MOBA101`, `แผนที่`, `ไอเทม`, `ตำแหน่ง`)
    - Unique Constraint `external_key` สำหรับ `UPSERT` ไม่ให้ข้อมูลซ้ำ
    - Index, Trigger `updated_at`, Row Level Security (RLS) และฟังก์ชัน `get_random_quiz_question()`
+> **ทางเลือกสำหรับ apply schema จาก command line:**
+> เพิ่ม `SUPABASE_DB_URL=postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5432/postgres` ใน `.env` แล้วรัน
+> `docker run --rm -i postgres:16-alpine psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 < supabase_schema.sql`
+
 4. ไปที่ **Project Settings → API** แล้วคัดลอกค่าต่อไปนี้ไปใส่ในไฟล์ `.env`:
    - **Project URL** → `SUPABASE_URL`
    - **service_role key** (แนะนำสำหรับ Backend/Scraper เพื่อเขียนข้อมูลได้โดยไม่ติด RLS) หรือ **anon public key** → `SUPABASE_KEY`
@@ -70,6 +74,8 @@ APP_PASSWORD=your_arena_password
 
 # คีย์ลับสำหรับเซ็น JWT (สร้างด้วย: openssl rand -hex 32)
 JWT_SECRET_KEY=your_64_char_random_hex_secret
+# อายุ Token (นาที) — dev ตั้ง 1440 = 24 ชั่วโมง, template เริ่มต้น 120
+JWT_EXPIRE_MINUTES=1440
 
 # บัญชีล็อกอิน ROV Academy สำหรับ Playwright Scraper
 ROV_USERNAME=your_rov_username
@@ -113,6 +119,8 @@ python scraper.py
 python scraper.py --api-only
 ```
 
+> **หมายเหตุ:** scraper จะ merge ข้อมูลตาม `external_key` — คำถามที่ scrape มาใหม่จะอัปเดตทับรายการเดิม แต่คำถามที่เพิ่ม/แก้ไขเองจะไม่ถูกลบ
+
 ### 3. รัน PHASE 2 & 3: เปิดเซิร์ฟเวอร์ FastAPI + หน้าเว็บ Live Quiz Arena (Port 8080)
 
 ```bash
@@ -154,6 +162,18 @@ docker compose down
 ```bash
 pytest -v test_api.py
 ```
+
+---
+
+## 🤖 โหมดตอบอัตโนมัติทั้งคลัง (Auto-Run)
+
+หลังเข้าสู่ระบบและได้รับ JWT Token แล้ว ให้กดปุ่ม **`▶ เริ่มตอบทั้งหมด`** ที่แถบเครื่องมือด้านบนของ Quiz Stage:
+
+1. Frontend เรียก `GET /api/questions` (พร้อมตัวกรองหมวดถ้าเลือกไว้) เพื่อ **ดึงคำถามทั้งหมด** จาก Supabase หรือ local cache
+2. AI Bot ตอบทีละข้อต่อเนื่องอัตโนมัติ ผ่าน `POST /api/bot/answer` (คิด 2–4 วินาที/ข้อ)
+3. แสดงแถบความคืบหน้า `ตอบแล้ว/ทั้งหมด · ความแม่นยำ` และสตรีม Log สดผ่าน WebSocket/SSE ทุกข้อ
+4. กดปุ่มเดิมอีกครั้ง (`⏹ หยุดการตอบ`) เพื่อหยุดกลางคันได้ทันที
+5. เมื่อจบระบบจะสรุปจำนวนข้อที่ตอบและความแม่นยำลงใน Log Console
 
 ---
 

@@ -13,6 +13,8 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+import json
+from dataclasses import replace
 from unittest.mock import patch
 
 import httpx
@@ -65,6 +67,38 @@ def _login_and_get_token(client: TestClient, settings: Settings) -> str:
     )
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]
+
+
+def test_upsert_merges_by_external_key_and_keeps_curated_questions(
+    tmp_path, test_settings: Settings
+) -> None:
+    """Re-running the scraper must update scraped chapters without deleting curated extras."""
+    cache = tmp_path / "quiz_questions.json"
+    base = {
+        "id": 1,
+        "external_key": "rov_academy_ch_30",
+        "category": "MOBA101",
+        "title": "MOBA101",
+        "content": "เนื้อหาบทเรียน MOBA101 จาก ROV Academy",
+        "question_text": "คำถามเดิมจาก scraper?",
+        "options": {"A": "1", "B": "2", "C": "3", "D": "4"},
+        "correct_option": "A",
+        "explanation": "คำอธิบายเดิม",
+        "source_url": "https://academy.rov.in.th/chapter/30",
+    }
+    curated = {**base, "id": 2, "external_key": "rov_academy_ch_30_q2", "question_text": "คำถามที่เพิ่มเอง?"}
+    cache.write_text(json.dumps([base, curated], ensure_ascii=False), encoding="utf-8")
+
+    settings = replace(test_settings, local_cache_path=cache)
+    repo = QuizRepository(settings)
+    saved, target = asyncio.run(
+        repo.upsert_questions([{**base, "question_text": "คำถามที่อัปเดตจาก scraper?"}])
+    )
+
+    assert (saved, target) == (2, "local_rov_cache")
+    by_key = {q["external_key"]: q for q in json.loads(cache.read_text(encoding="utf-8"))}
+    assert by_key["rov_academy_ch_30"]["question_text"] == "คำถามที่อัปเดตจาก scraper?"
+    assert by_key["rov_academy_ch_30_q2"]["question_text"] == "คำถามที่เพิ่มเอง?"
 
 
 # =============================================================================
@@ -147,6 +181,77 @@ def test_random_question_category_filter(
     )
     assert resp.status_code == 200
     assert resp.json()["category"] == category
+
+
+def test_list_questions_returns_full_payload_for_all_categories(
+    client: TestClient, test_settings: Settings
+) -> None:
+    """The auto-run flow pulls the whole bank, so every record must be complete."""
+    token = _login_and_get_token(client, test_settings)
+    resp = client.get("/api/questions", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 20
+    assert body["categories"] == {"MOBA101": 5, "แผนที่": 5, "ไอเทม": 5, "ตำแหน่ง": 5}
+    for question in body["questions"]:
+        assert question["question_text"].strip()
+        assert len(question["content"]) > 20
+        assert set(question["options"].keys()) == {"A", "B", "C", "D"}
+        assert question["source_url"].startswith("http")
+
+
+@pytest.mark.parametrize(
+    ("category", "expected"),
+    [("MOBA101", 5), ("แผนที่", 5), ("ไอเทม", 5), ("ตำแหน่ง", 5)],
+)
+def test_list_questions_category_filter(
+    client: TestClient, test_settings: Settings, category: str, expected: int
+) -> None:
+    """Auto-run filters the bank by category, so the list endpoint must honor it."""
+    token = _login_and_get_token(client, test_settings)
+    resp = client.get(
+        "/api/questions",
+        params={"category": category},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == expected
+    assert body["categories"] == {category: expected}
+    assert all(q["category"] == category for q in body["questions"])
+
+
+def test_bot_answers_every_question_in_bank_correctly(
+    client: TestClient, test_settings: Settings
+) -> None:
+    """Bot must be able to pull and answer the entire dataset, not just one question."""
+    token = _login_and_get_token(client, test_settings)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    bank = client.get("/api/questions", headers=headers).json()["questions"]
+    assert len(bank) == 20
+
+    answered_categories = set()
+    for question in bank:
+        resp = client.post(
+            "/api/bot/answer",
+            json={"question_id": question["id"]},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        answer = resp.json()
+        assert answer["question_id"] == question["id"]
+        assert answer["category"] == question["category"]
+        assert answer["selected_option"] in question["options"]
+        assert answer["selected_text"] == question["options"][answer["selected_option"]]
+        assert answer["is_correct"] is True
+        assert 0.05 <= answer["thinking_seconds"] <= 0.10
+        assert answer["explanation"].strip()
+        answered_categories.add(answer["category"])
+
+    assert answered_categories == {"MOBA101", "แผนที่", "ไอเทม", "ตำแหน่ง"}
 
 
 # =============================================================================

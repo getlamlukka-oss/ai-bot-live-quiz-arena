@@ -27,6 +27,13 @@
     selectedCategory: "",
     currentQuestion: null,
     isThinking: false,
+    autoRun: false,
+    autoRunAbort: false,
+    autoRunQueue: [],
+    autoRunIndex: 0,
+    autoRunAnswered: 0,
+    autoRunCorrect: 0,
+    autoRunTotal: 0,
     ws: null,
     sse: null,
     wsHeartbeatId: null,
@@ -70,6 +77,11 @@
 
     categoryPills: document.querySelectorAll(".pill[data-category]"),
     btnNextQuestion: document.getElementById("btn-next-question"),
+    btnAutoRun: document.getElementById("btn-auto-run"),
+    autoRunStatus: document.getElementById("auto-run-status"),
+    autoRunStatusText: document.getElementById("auto-run-status-text"),
+    autoRunScore: document.getElementById("auto-run-score"),
+    autoRunBarFill: document.getElementById("auto-run-bar-fill"),
     questionCategoryBadge: document.getElementById("question-category-badge"),
     questionIdLabel: document.getElementById("question-id-label"),
     questionTitle: document.getElementById("question-title"),
@@ -379,6 +391,25 @@
     state.expiresAtMs = null;
     state.currentQuestion = null;
     state.wsFailures = 0;
+    state.autoRunAbort = true;
+    state.autoRun = false;
+    state.autoRunQueue = [];
+    state.autoRunIndex = 0;
+    state.autoRunAnswered = 0;
+    state.autoRunCorrect = 0;
+    state.autoRunTotal = 0;
+    if (el.btnAutoRun) {
+      el.btnAutoRun.disabled = false;
+      el.btnAutoRun.classList.remove("running");
+      el.btnAutoRun.textContent = "▶ เริ่มตอบทั้งหมด";
+    }
+    if (el.autoRunStatus) el.autoRunStatus.classList.add("hidden");
+    if (el.autoRunBarFill) el.autoRunBarFill.style.width = "0%";
+    if (el.autoRunStatusText) el.autoRunStatusText.textContent = "กำลังดึงคลังคำถามทั้งหมด...";
+    el.categoryPills.forEach((pill) => {
+      pill.disabled = false;
+    });
+    el.btnNextQuestion.disabled = false;
     state.stats = {
       answered: 0,
       correct: 0,
@@ -470,12 +501,14 @@
       }
     });
 
-    el.btnBoltSend.disabled = false;
-    el.boltBtnLabel.textContent = "ส่งคำถามให้ AI บอทตอบ";
+    el.btnBoltSend.disabled = state.autoRun;
+    el.boltBtnLabel.textContent = state.autoRun
+      ? "AI กำลังตอบอัตโนมัติ..."
+      : "ส่งคำถามให้ AI บอทตอบ";
   }
 
   async function loadRandomQuestion() {
-    if (state.isThinking) return;
+    if (state.isThinking || state.autoRun) return;
     el.btnNextQuestion.disabled = true;
     el.btnBoltSend.disabled = true;
 
@@ -553,8 +586,26 @@
     el.statAvgTime.textContent = `${avgSec}s`;
   }
 
-  async function handleBoltSend() {
-    if (!state.currentQuestion || state.isThinking) return;
+  function renderAnswerResult(result) {
+    const chosenCard = document.querySelector(`.option-card[data-option="${result.selected_option}"]`);
+    if (chosenCard) {
+      chosenCard.classList.add("ai-selected");
+      const indicator = chosenCard.querySelector(".option-indicator");
+      if (indicator) indicator.textContent = "✅ AI เลือกข้อนี้";
+    }
+
+    el.resultBadge.textContent = result.is_correct
+      ? `✅ AI ตอบข้อ ${result.selected_option} ถูกต้อง!`
+      : `⚠️ AI ตอบข้อ ${result.selected_option}`;
+    el.resultMeta.textContent = `ใช้เวลาคิด ${result.thinking_seconds.toFixed(2)}s · ความมั่นใจ ${Math.round(
+      result.confidence * 100
+    )}%`;
+    el.resultExplanation.textContent = result.explanation;
+    el.aiResultBanner.classList.remove("hidden");
+  }
+
+  async function answerCurrentQuestion({ auto = false } = {}) {
+    if (!state.currentQuestion || state.isThinking) return null;
 
     startThinkingEffects();
 
@@ -566,24 +617,8 @@
 
       stopThinkingEffects();
       updateMetrics(result);
-
-      const chosenCard = document.querySelector(`.option-card[data-option="${result.selected_option}"]`);
-      if (chosenCard) {
-        chosenCard.classList.add("ai-selected");
-        const indicator = chosenCard.querySelector(".option-indicator");
-        if (indicator) indicator.textContent = "✅ AI เลือกข้อนี้";
-      }
-
-      el.resultBadge.textContent = result.is_correct
-        ? `✅ AI ตอบข้อ ${result.selected_option} ถูกต้อง!`
-        : `⚠️ AI ตอบข้อ ${result.selected_option}`;
-      el.resultMeta.textContent = `ใช้เวลาคิด ${result.thinking_seconds.toFixed(2)}s · ความมั่นใจ ${Math.round(
-        result.confidence * 100
-      )}%`;
-      el.resultExplanation.textContent = result.explanation;
-      el.aiResultBanner.classList.remove("hidden");
-
-      el.boltBtnLabel.textContent = "ส่งคำถามนี้ให้ AI ตอบอีกครั้ง";
+      renderAnswerResult(result);
+      return result;
     } catch (err) {
       stopThinkingEffects();
       appendConsoleLog({
@@ -592,10 +627,160 @@
         message: `ส่งคำถามให้ AI ไม่สำเร็จ: ${err.message}`,
       });
       showToast(`เกิดข้อผิดพลาด: ${err.message}`);
+      if (auto) state.autoRunAbort = true;
+      return null;
     } finally {
-      el.btnBoltSend.disabled = false;
-      el.btnNextQuestion.disabled = false;
+      if (!state.autoRun) {
+        el.btnBoltSend.disabled = false;
+        el.btnNextQuestion.disabled = false;
+      }
     }
+  }
+
+  async function handleBoltSend() {
+    if (state.autoRun) return;
+    const result = await answerCurrentQuestion();
+    if (result) {
+      el.boltBtnLabel.textContent = "ส่งคำถามนี้ให้ AI ตอบอีกครั้ง";
+    }
+  }
+
+  // =========================================================================
+  // Auto-Run: Pull the whole question bank and let the bot answer everything
+  // =========================================================================
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function updateAutoRunProgress(done, total, correct) {
+    state.autoRunAnswered = done;
+    state.autoRunCorrect = correct;
+    const percent = total ? Math.round((done / total) * 100) : 0;
+    const accuracy = done ? Math.round((correct / done) * 100) : 100;
+    el.autoRunScore.textContent = `${done}/${total} · ${accuracy}%`;
+    el.autoRunBarFill.style.width = `${percent}%`;
+  }
+
+  function setAutoRunUI(running) {
+    state.autoRun = running;
+    el.btnAutoRun.classList.toggle("running", running);
+    el.btnAutoRun.textContent = running ? "⏹ หยุดการตอบ" : "▶ เริ่มตอบทั้งหมด";
+    el.categoryPills.forEach((pill) => {
+      pill.disabled = running;
+    });
+    el.btnNextQuestion.disabled = running;
+    if (running) {
+      el.btnBoltSend.disabled = true;
+      el.boltBtnLabel.textContent = "AI กำลังตอบอัตโนมัติ...";
+    } else {
+      el.btnBoltSend.disabled = !state.currentQuestion;
+      el.boltBtnLabel.textContent = "ส่งคำถามให้ AI บอทตอบ";
+    }
+  }
+
+  async function startAutoRun() {
+    if (state.autoRun) {
+      state.autoRunAbort = true;
+      el.btnAutoRun.disabled = true;
+      el.btnAutoRun.textContent = "⏹ กำลังหยุด...";
+      return;
+    }
+
+    if (state.isThinking) {
+      showToast("กรุณารอให้ AI ตอบข้อปัจจุบันก่อน");
+      return;
+    }
+
+    if (!state.token) {
+      showToast("กรุณาเข้าสู่ระบบก่อน");
+      return;
+    }
+
+    setAutoRunUI(true);
+    state.autoRunAbort = false;
+    state.autoRunTotal = 0;
+    state.autoRunQueue = [];
+    el.autoRunStatus.classList.remove("hidden");
+    el.autoRunStatusText.textContent = "กำลังดึงคลังคำถามทั้งหมดจาก Backend...";
+    updateAutoRunProgress(0, 0, 0);
+
+    let questions = [];
+    try {
+      const params = new URLSearchParams();
+      if (state.selectedCategory) params.set("category", state.selectedCategory);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const payload = await apiFetch(`/api/questions${query}`);
+      questions = payload.questions || [];
+    } catch (err) {
+      appendConsoleLog({
+        actor: "Error",
+        level: "error",
+        message: `ดึงคลังคำถามทั้งหมดไม่สำเร็จ: ${err.message}`,
+      });
+      showToast(`ดึงคลังคำถามไม่สำเร็จ: ${err.message}`);
+      setAutoRunUI(false);
+      el.autoRunStatus.classList.add("hidden");
+      return;
+    }
+
+    if (questions.length === 0) {
+      showToast("ไม่พบคำถามในหมวดที่เลือก");
+      setAutoRunUI(false);
+      el.autoRunStatus.classList.add("hidden");
+      return;
+    }
+
+    state.autoRunQueue = questions;
+    state.autoRunTotal = questions.length;
+    updateAutoRunProgress(0, questions.length, 0);
+    el.autoRunStatusText.textContent = `พบ ${questions.length} คำถาม — เริ่มตอบอัตโนมัติ...`;
+
+    let answered = 0;
+    let correct = 0;
+
+    for (let i = 0; i < questions.length; i += 1) {
+      if (state.autoRunAbort || !state.token) break;
+
+      const question = questions[i];
+      state.autoRunIndex = i;
+      renderQuestion(question);
+      el.autoRunStatusText.textContent = `กำลังตอบข้อ ${i + 1}/${questions.length} — #${question.id} [${question.category}] ${question.title}`;
+      updateAutoRunProgress(i, questions.length, correct);
+
+      const result = await answerCurrentQuestion({ auto: true });
+      if (result) {
+        answered += 1;
+        if (result.is_correct) correct += 1;
+      }
+      updateAutoRunProgress(answered, questions.length, correct);
+
+      if (state.autoRunAbort) break;
+      await sleep(350);
+    }
+
+    const aborted = state.autoRunAbort || !state.token;
+    state.autoRunAbort = false;
+    setAutoRunUI(false);
+    el.btnAutoRun.disabled = false;
+
+    if (!state.token) return;
+
+    if (aborted) {
+      el.autoRunStatusText.textContent = `หยุดการตอบแล้ว — ตอบไป ${answered}/${questions.length} ข้อ`;
+      showToast(`หยุดการตอบแล้ว (${answered}/${questions.length} ข้อ)`);
+      return;
+    }
+
+    const accuracy = answered ? Math.round((correct / answered) * 100) : 0;
+    el.autoRunStatusText.textContent = `ตอบครบทั้งคลังแล้ว ${answered}/${questions.length} ข้อ · ความแม่นยำ ${accuracy}%`;
+    el.autoRunScore.textContent = `${answered}/${questions.length} · ${accuracy}%`;
+    appendConsoleLog({
+      actor: "System",
+      level: "success",
+      message: `Auto-Run เสร็จสิ้น: ตอบ ${answered}/${questions.length} ข้อ ความแม่นยำ ${accuracy}%`,
+    });
+    showToast(`AI ตอบครบทั้ง ${answered} ข้อ (แม่นยำ ${accuracy}%)`);
   }
 
   // =========================================================================
@@ -626,7 +811,7 @@
 
     el.categoryPills.forEach((pill) => {
       pill.addEventListener("click", () => {
-        if (state.isThinking) return;
+        if (state.isThinking || state.autoRun) return;
         el.categoryPills.forEach((p) => p.classList.remove("active"));
         pill.classList.add("active");
         state.selectedCategory = pill.dataset.category || "";
@@ -635,6 +820,7 @@
     });
 
     el.btnNextQuestion.addEventListener("click", loadRandomQuestion);
+    el.btnAutoRun.addEventListener("click", startAutoRun);
     el.btnBoltSend.addEventListener("click", handleBoltSend);
     el.btnClearLogs.addEventListener("click", () => {
       el.logConsole.innerHTML = "";

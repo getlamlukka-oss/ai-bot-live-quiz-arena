@@ -70,7 +70,7 @@
       </form>
 
       <div class="login-footer">
-        <span class="chip chip-muted">FastAPI :8080</span>
+        <span class="chip chip-muted">FastAPI · Live API</span>
         <span class="chip chip-muted">JWT HS256</span>
         <span class="chip chip-muted">Supabase + Sentry</span>
       </div>
@@ -144,9 +144,26 @@
             <button type="button" class="pill" data-category="ไอเทม">ไอเทม</button>
             <button type="button" class="pill" data-category="ตำแหน่ง">ตำแหน่ง</button>
           </div>
-          <button id="btn-next-question" type="button" class="btn btn-secondary btn-sm">
-            🎲 สุ่มคำถามใหม่
-          </button>
+          <div class="stage-toolbar-actions">
+            <button id="btn-auto-run" type="button" class="btn btn-auto btn-sm">
+              ▶ เริ่มตอบทั้งหมด
+            </button>
+            <button id="btn-next-question" type="button" class="btn btn-secondary btn-sm">
+              🎲 สุ่มคำถามใหม่
+            </button>
+          </div>
+        </div>
+
+        <!-- Auto-Run Progress (visible only while the bot answers the whole bank) -->
+        <div id="auto-run-status" class="auto-run-status hidden" role="status" aria-live="polite">
+          <div class="auto-run-head">
+            <span class="auto-run-spinner" aria-hidden="true"></span>
+            <span id="auto-run-status-text">กำลังดึงคลังคำถามทั้งหมด...</span>
+            <span id="auto-run-score" class="auto-run-score">0/0 · 100%</span>
+          </div>
+          <div class="auto-run-bar" aria-hidden="true">
+            <div id="auto-run-bar-fill" class="auto-run-bar-fill"></div>
+          </div>
         </div>
 
         <!-- Question Header -->
