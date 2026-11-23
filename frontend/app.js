@@ -63,6 +63,9 @@
     passwordToggle: document.getElementById("toggle-password"),
     multiAccountNote: document.getElementById("multi-account-note"),
     accountTabs: document.querySelectorAll(".account-tab"),
+    loginCard: document.querySelector(".garena-login-card"),
+    loginSpinner: document.getElementById("login-spinner"),
+    capslockWarning: document.getElementById("capslock-warning"),
 
     operatorName: document.getElementById("operator-name"),
     dataSourceBadge: document.getElementById("data-source-badge"),
@@ -436,6 +439,7 @@
     el.passwordInput.type = "password";
     el.passwordToggle?.setAttribute("aria-pressed", "false");
     el.passwordToggle?.setAttribute("aria-label", "แสดงรหัสผ่าน");
+    el.capslockWarning.classList.add("hidden");
     if (clearMessage) {
       el.loginError.classList.add("hidden");
     }
@@ -449,6 +453,8 @@
 
     el.loginError.classList.add("hidden");
     el.btnLogin.disabled = true;
+    el.btnLogin.classList.add("is-loading");
+    el.loginSpinner.classList.remove("hidden");
     el.loginBtnLabel.textContent = "กำลังตรวจสอบสิทธิ์...";
 
     try {
@@ -470,8 +476,12 @@
     } catch (err) {
       el.loginError.textContent = err.message || "เข้าสู่ระบบไม่สำเร็จ";
       el.loginError.classList.remove("hidden");
+      el.loginCard.classList.add("shake");
+      setTimeout(() => el.loginCard.classList.remove("shake"), 350);
     } finally {
       el.btnLogin.disabled = false;
+      el.btnLogin.classList.remove("is-loading");
+      el.loginSpinner.classList.add("hidden");
       el.loginBtnLabel.textContent = "เข้าสู่ระบบ Garena Arena";
     }
   }
@@ -802,6 +812,14 @@
       el.passwordToggle.setAttribute("aria-pressed", String(visible));
       el.passwordToggle.setAttribute("aria-label", visible ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน");
     });
+
+    const updateCapsLock = (event) => {
+      const active = typeof event.getModifierState === "function" && event.getModifierState("CapsLock");
+      el.capslockWarning.classList.toggle("hidden", !active);
+    };
+    el.passwordInput.addEventListener("keydown", updateCapsLock);
+    el.passwordInput.addEventListener("keyup", updateCapsLock);
+    el.passwordInput.addEventListener("blur", () => el.capslockWarning.classList.add("hidden"));
 
     el.accountTabs.forEach((tab) => {
       tab.addEventListener("click", () => {
