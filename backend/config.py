@@ -71,8 +71,9 @@ class Settings:
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 120
 
-    # Phase 1: ROV Academy Playwright scraper settings
+    # Phase 1: ROV Academy + Garena data acquisition settings
     rov_academy_url: str = "https://academy.rov.in.th"
+    garena_url: str = "https://www.garena.co.th"
     rov_login_url: str = (
         "https://100055.connect.garena.com/oauth/login"
         "?response_type=code"
@@ -147,6 +148,7 @@ def load_settings() -> Settings:
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256").strip() or "HS256",
         jwt_expire_minutes=_get_int("JWT_EXPIRE_MINUTES", 120),
         rov_academy_url=os.getenv("ROV_ACADEMY_URL", "https://academy.rov.in.th").strip().rstrip("/"),
+        garena_url=os.getenv("GARENA_URL", "https://www.garena.co.th").strip().rstrip("/"),
         rov_login_url=os.getenv(
             "ROV_LOGIN_URL",
             "https://100055.connect.garena.com/oauth/login"

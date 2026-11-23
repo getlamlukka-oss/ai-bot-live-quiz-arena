@@ -10,7 +10,7 @@ Architecture:
   All network calls pass through `execute_with_async_retry` (3 attempts with
   exponential backoff) and report terminal failures to Sentry.
 - When Supabase credentials are not configured (fresh local clone / unit tests):
-  Automatically loads the verified 4-category ROV Academy dataset from
+  Automatically loads the verified 8-category ROV Academy + Garena dataset from
   `data/quiz_questions.json` so the full stack works end-to-end out of the box.
 """
 
@@ -31,7 +31,16 @@ from backend.retry_utils import execute_with_async_retry
 
 logger = logging.getLogger("quiz_arena.database")
 
-VALID_CATEGORIES = ("MOBA101", "แผนที่", "ไอเทม", "ตำแหน่ง")
+VALID_CATEGORIES = (
+    "MOBA101",
+    "แผนที่",
+    "ไอเทม",
+    "ตำแหน่ง",
+    "อีสปอร์ต",
+    "ทริกตีป้อม",
+    "เทคนิคฮีโร่",
+    "Garena",
+)
 
 
 class DatabaseConnectionError(RuntimeError):

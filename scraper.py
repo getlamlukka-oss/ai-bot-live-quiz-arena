@@ -1,24 +1,28 @@
 """
-PHASE 1: ROV Academy Data Acquisition Scraper (`scraper.py`).
+PHASE 1: ROV Academy + Garena Data Acquisition Scraper (`scraper.py`).
 
 Uses Playwright to automate ROV Academy (`https://academy.rov.in.th`) login with
 credentials loaded strictly from `.env` (`ROV_USERNAME`, `ROV_PASSWORD`), pauses via
 `page.pause()` so the operator can solve any Garena Captcha manually, then iterates
-over all 4 required categories:
+over all 7 public ROV Academy topics (40 chapters):
   1. MOBA101
   2. แผนที่ (แผนที่ RoV)
   3. ไอเทม (ไอเทมในเกม)
   4. ตำแหน่ง (ตำแหน่งในเกม)
+  5. อีสปอร์ต (การแข่งขัน RoV ระดับมืออาชีพ)
+  6. ทริกตีป้อม (ทริกการตีป้อมให้ชนะ)
+  7. เทคนิคฮีโร่ (เทคนิคการเล่นฮีโร่)
 
-Extracts clean `Title` and `Content` (plus quiz options when available) and persists
-records into Supabase table `quiz_questions` (see `supabase_schema.sql`) with:
+It also pulls the public Garena Games catalog (`https://www.garena.co.th/new/api/games`)
+into the `Garena` category, then persists every record into Supabase table
+`quiz_questions` (see `supabase_schema.sql`) with:
   - 3x exponential-backoff retry on Playwright & Supabase external operations
   - Comprehensive `try-except` + Sentry SDK exception reporting
   - Automatic local JSON backup (`data/quiz_questions.json`)
 
 Usage:
   python scraper.py                 # Interactive Playwright mode (pauses at Captcha)
-  python scraper.py --api-only      # Fetch public chapter content via ROV Academy API
+  python scraper.py --api-only      # Fetch ROV Academy chapters + Garena Games API
 """
 
 from __future__ import annotations
@@ -47,13 +51,19 @@ from backend.retry_utils import retry_sync
 
 logger = configure_logging()
 
-# Canonical mapping between ROV Academy topic names and our 4 target DB categories
+# Canonical mapping between ROV Academy topic names and our DB categories
 TARGET_CATEGORIES: List[Tuple[str, Tuple[str, ...]]] = [
     ("MOBA101", ("moba101", "moba 101")),
     ("แผนที่", ("แผนที่", "map")),
     ("ไอเทม", ("ไอเทม", "item")),
     ("ตำแหน่ง", ("ตำแหน่ง", "role", "position")),
+    ("อีสปอร์ต", ("การแข่งขัน", "อีสปอร์ต", "esports")),
+    ("ทริกตีป้อม", ("ทริกการตีป้อม", "ตีป้อม", "tower")),
+    ("เทคนิคฮีโร่", ("เทคนิคการเล่นฮีโร่", "เทคนิคฮีโร่", "hero technique")),
 ]
+
+GARENA_CATEGORY = "Garena"
+GARENA_FALLBACK_GROUPS = ("PC game", "Mobile game", "Account & Platform", "How to")
 
 LOGIN_SELECTORS = {
     "username": (
@@ -84,12 +94,24 @@ def strip_html(raw: Optional[str]) -> str:
 
 
 def match_target_category(topic_title: str) -> Optional[str]:
-    """Map an ROV Academy topic heading onto one of our 4 required categories."""
-    normalized = topic_title.strip().lower()
+    """Map an ROV Academy topic heading onto one of our DB categories."""
+    normalized = re.sub(r"\s+", " ", topic_title).strip().lower()
     for canonical, keywords in TARGET_CATEGORIES:
         if any(keyword in normalized for keyword in keywords):
             return canonical
     return None
+
+
+def extract_summary_snippet(content: str, max_len: int = 160) -> str:
+    """Return the first meaningful sentence of a lesson for use as a quiz answer."""
+    text = re.sub(r"\s+", " ", content).strip()
+    if not text:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    snippet = parts[0] if parts else text
+    if len(snippet) < 50 and len(parts) > 1:
+        snippet = f"{snippet} {parts[1]}"
+    return snippet[:max_len].strip()
 
 
 def build_quiz_record(
@@ -116,28 +138,79 @@ def build_quiz_record(
         cached["source_url"] = source_url
         return cached
 
-    # Fallback option generation when scraping a brand-new ROV Academy chapter
-    snippet = content.split("\n")[0][:120].strip() if content else title
+    snippet = extract_summary_snippet(content) or f"หลักการพื้นฐานของ {title}"
+    keys = ["A", "B", "C", "D"]
+    correct_index = abs(chapter_id) % len(keys)
+    distractors = [
+        "ระบบแลกเปลี่ยนสกินและคูปองในร้านค้าล็อบบี้",
+        "วิธีปรับตั้งค่าเฟรมเรตและคุณภาพกราฟิกในเกม",
+        "กติกาการสมัครแข่งขันอีสปอร์ตระดับภูมิภาค",
+    ]
+    distractor_iter = iter(distractors)
+    options = {
+        key: snippet if index == correct_index else next(distractor_iter)
+        for index, key in enumerate(keys)
+    }
     return {
         "external_key": external_key,
         "category": category,
         "title": title,
         "content": content[:1800],
         "question_text": f"ข้อใดสรุปสาระสำคัญของบทเรียน '{title}' ในหมวด {category} ได้ถูกต้องที่สุด?",
-        "options": {
-            "A": snippet or f"หลักการพื้นฐานของ {title}",
-            "B": "ระบบแลกเปลี่ยนสกินและคูปองในร้านค้าล็อบบี้",
-            "C": "วิธีปรับตั้งค่าเฟรมเรตและคุณภาพกราฟิกในเกม",
-            "D": "กติกาการสมัครแข่งขันอีสปอร์ตระดับภูมิภาค",
-        },
-        "correct_option": "A",
+        "options": options,
+        "correct_option": keys[correct_index],
         "explanation": f"อ้างอิงจากบทเรียน RoV Academy หมวด {category} หัวข้อ {title}",
         "source_url": source_url,
     }
 
 
+def build_garena_game_record(
+    *,
+    game_id: int,
+    game_name: str,
+    group_name: str,
+    support_url: str,
+    group_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Build a `Garena` category question from the public Garena Games API."""
+    names: List[str] = []
+    for candidate in list(group_names or []) + list(GARENA_FALLBACK_GROUPS):
+        cleaned = str(candidate).strip()
+        if cleaned and cleaned not in names:
+            names.append(cleaned)
+    if group_name and group_name not in names:
+        names.append(group_name)
+    if len(names) > 4:
+        names = [group_name] + [name for name in names if name != group_name][:3]
+    else:
+        names = names[:4]
+    while len(names) < 4:
+        names.append(f"Group {len(names) + 1}")
+
+    options = {key: name for key, name in zip("ABCD", names)}
+    correct_option = next(
+        (key for key, name in options.items() if name == group_name),
+        "A",
+    )
+    source_url = support_url or "https://www.garena.co.th/"
+    return {
+        "external_key": f"garena_game_{game_id}",
+        "category": GARENA_CATEGORY,
+        "title": game_name,
+        "content": (
+            f"{game_name} เป็นเกม/บริการในกลุ่ม {group_name or 'ไม่ระบุ'} "
+            f"ของ Garena Thailand. ลิงก์ฝ่ายสนับสนุน: {source_url}"
+        )[:1800],
+        "question_text": f"'{game_name}' ถูกจัดอยู่ในกลุ่มใดของ Garena Thailand?",
+        "options": options,
+        "correct_option": correct_option,
+        "explanation": f"จาก Garena Games API: {game_name} อยู่ในกลุ่ม {group_name}",
+        "source_url": source_url,
+    }
+
+
 class ROVAcademyScraper:
-    """Playwright + API hybrid scraper for ROV Academy with 3x retry & Sentry protection."""
+    """Playwright + API hybrid scraper for ROV Academy and Garena with 3x retry & Sentry."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -192,8 +265,10 @@ class ROVAcademyScraper:
         method: str = "GET",
         payload: Optional[Dict[str, Any]] = None,
         cookies: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
-        """Fetch JSON from ROV Academy API endpoints with 3x retry + Sentry capture."""
+        origin: Optional[str] = None,
+        referer: Optional[str] = None,
+    ) -> Any:
+        """Fetch JSON from ROV Academy/Garena API endpoints with 3x retry + Sentry capture."""
 
         @retry_sync(
             component="rov_api",
@@ -203,15 +278,15 @@ class ROVAcademyScraper:
             max_wait=self.settings.retry_max_wait_seconds,
             retry_exceptions=(httpx.HTTPError, OSError, TimeoutError, ValueError),
         )
-        def _request() -> Dict[str, Any]:
+        def _request() -> Any:
             headers = {
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
                 ),
                 "Accept": "application/json",
-                "Origin": self.settings.rov_academy_url,
-                "Referer": f"{self.settings.rov_academy_url}/",
+                "Origin": origin or self.settings.rov_academy_url,
+                "Referer": referer or f"{self.settings.rov_academy_url}/",
             }
             with httpx.Client(timeout=20.0, cookies=cookies, follow_redirects=True) as client:
                 if method.upper() == "POST":
@@ -252,15 +327,15 @@ class ROVAcademyScraper:
 
         return title or f"{category} Chapter {chapter_id}", content
 
-    def _scrape_four_categories(
+    def _scrape_rov_academy(
         self,
         *,
         page: Optional[Page] = None,
         context: Optional[BrowserContext] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Loop through all 4 target categories (`MOBA101`, `แผนที่`, `ไอเทม`, `ตำแหน่ง`)
-        and extract strictly `Title` and `Content` for every chapter.
+        Loop through all 7 public ROV Academy topics (40 chapters) and extract
+        `Title` and `Content` for every chapter.
         """
         cookies: Dict[str, str] = {}
         if context is not None:
@@ -280,7 +355,7 @@ class ROVAcademyScraper:
         )
         topics = (info_json.get("data") or {}).get("topics") or []
 
-        # Collect chapters belonging exclusively to our 4 target categories
+        # Collect chapters belonging to every supported ROV Academy topic
         selected_topics: List[Tuple[str, List[int]]] = []
         all_chapter_ids: List[int] = []
         for topic in topics:
@@ -292,8 +367,9 @@ class ROVAcademyScraper:
             selected_topics.append((canonical_cat, chapter_ids))
             all_chapter_ids.extend(chapter_ids)
 
+        all_chapter_ids = list(dict.fromkeys(all_chapter_ids))
         if not all_chapter_ids:
-            raise RuntimeError("No chapters found for the 4 target ROV Academy categories.")
+            raise RuntimeError("No chapters found for the supported ROV Academy categories.")
 
         chapters_json = self._fetch_api_json_with_retry(
             f"{self.settings.rov_academy_url}/api/chapters",
@@ -330,6 +406,9 @@ class ROVAcademyScraper:
                     title = title or dom_title
                     content = content or dom_content
 
+                if len(content) < 20:
+                    content = f"บทเรียน '{title}' จาก ROV Academy หมวด {canonical_cat}"
+
                 record = build_quiz_record(
                     chapter_id=cid,
                     category=canonical_cat,
@@ -343,13 +422,74 @@ class ROVAcademyScraper:
 
         return extracted
 
+    def _scrape_garena_games(self) -> List[Dict[str, Any]]:
+        """Fetch the public Garena Games catalog and turn each game into a quiz row."""
+        url = f"{self.settings.garena_url}/new/api/games"
+        payload = self._fetch_api_json_with_retry(
+            url,
+            method="GET",
+            origin=self.settings.garena_url,
+            referer=f"{self.settings.garena_url}/",
+        )
+        if not isinstance(payload, list):
+            raise RuntimeError("Unexpected Garena Games API payload")
+
+        groups: List[Tuple[str, List[Dict[str, Any]]]] = []
+        for group in payload:
+            if not isinstance(group, dict):
+                continue
+            group_name = str(group.get("group_name") or "").strip()
+            games = [game for game in (group.get("games") or []) if isinstance(game, dict)]
+            if group_name:
+                groups.append((group_name, games))
+
+        group_names = [name for name, _games in groups]
+        records: List[Dict[str, Any]] = []
+        for group_name, games in groups:
+            for game in games:
+                try:
+                    game_id = int(game.get("game_id"))
+                except (TypeError, ValueError):
+                    continue
+                game_name = str(game.get("game_name") or "").strip()
+                if not game_name:
+                    continue
+                records.append(
+                    build_garena_game_record(
+                        game_id=game_id,
+                        game_name=game_name,
+                        group_name=group_name,
+                        support_url=str(game.get("support_url") or "").strip(),
+                        group_names=group_names,
+                    )
+                )
+
+        logger.info("Scraped %d Garena Games records across %d groups.", len(records), len(groups))
+        return records
+
+    def _collect_records(
+        self,
+        *,
+        page: Optional[Page] = None,
+        context: Optional[BrowserContext] = None,
+    ) -> List[Dict[str, Any]]:
+        """Collect ROV Academy chapters plus Garena Games catalog records."""
+        records = self._scrape_rov_academy(page=page, context=context)
+        try:
+            garena_records = self._scrape_garena_games()
+        except Exception as exc:
+            capture_error(exc, component="garena_scraper", operation="scrape_garena_games")
+            logger.warning("Garena Games scrape failed; continuing with ROV Academy records: %s", exc)
+            garena_records = []
+        return records + garena_records
+
     def run_interactive_playwright(self) -> List[Dict[str, Any]]:
         """
         Full Phase 1 interactive Playwright pipeline:
           1. Launch Chromium and open ROV Academy OAuth login page
           2. Fill username & password from `.env`
           3. Call `page.pause()` so the user can solve Captcha manually and click Resume
-          4. Loop over the 4 categories and extract Title + Content
+          4. Loop over all ROV Academy topics + Garena Games and extract content
           5. Close Playwright cleanly, then upsert all rows to Supabase `quiz_questions` (3x retry)
         """
         records: List[Dict[str, Any]] = []
@@ -373,14 +513,14 @@ class ROVAcademyScraper:
                     if self.settings.rov_academy_url not in page.url:
                         self._navigate_with_retry(page, self.settings.rov_academy_url)
 
-                    records = self._scrape_four_categories(page=page, context=context)
+                    records = self._collect_records(page=page, context=context)
                 finally:
                     browser.close()
 
             # Execute async Supabase upsert strictly AFTER sync_playwright exits its event loop
             saved_count, target = asyncio.run(self.repository.upsert_questions(records))
             logger.info(
-                "Phase 1 Complete: Saved %d ROV Academy records to '%s' (table=%s).",
+                "Phase 1 Complete: Saved %d quiz records to '%s' (table=%s).",
                 saved_count,
                 target,
                 self.settings.supabase_table,
@@ -393,10 +533,10 @@ class ROVAcademyScraper:
     def run_api_sync(self) -> List[Dict[str, Any]]:
         """Headless API-only sync mode for CI/containers without an interactive display."""
         try:
-            records = self._scrape_four_categories(page=None, context=None)
+            records = self._collect_records(page=None, context=None)
             saved_count, target = asyncio.run(self.repository.upsert_questions(records))
             logger.info(
-                "API Sync Complete: Saved %d ROV Academy records to '%s' (table=%s).",
+                "API Sync Complete: Saved %d quiz records to '%s' (table=%s).",
                 saved_count,
                 target,
                 self.settings.supabase_table,
@@ -409,12 +549,12 @@ class ROVAcademyScraper:
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Phase 1 ROV Academy Scraper -> Supabase quiz_questions"
+        description="Phase 1 ROV Academy + Garena Scraper -> Supabase quiz_questions"
     )
     parser.add_argument(
         "--api-only",
         action="store_true",
-        help="Skip interactive Playwright browser and sync the 4 ROV Academy categories via API directly.",
+        help="Skip interactive Playwright and sync all ROV Academy topics plus Garena Games via API.",
     )
     return parser.parse_args(argv)
 
